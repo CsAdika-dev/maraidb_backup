@@ -1,0 +1,7 @@
+[client]
+# database user
+user=""
+# database password 
+password="Csbo42!%"
+# fqdn or ip address
+host="10.8.33.20"
