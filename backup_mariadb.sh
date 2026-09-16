@@ -23,7 +23,7 @@
 #==============================================================================
 
 # directory to put the backup files
-BACKUP_DIR=/srv/backup/mariadb
+BACKUP_DIR=..... 
 
 # Don't backup databases with these names 
 # Example: starts with mysql (^mysql) or ends with _schema (_schema$)
@@ -34,7 +34,7 @@ IGNORE_DB="(_schema$)"
 KEEP_BACKUPS_FOR=7 #day
 
 # Options for mysql and mysqldump
-MYSQLEXTRAFILE="/opt/scripts/mariadb.cnf"
+MYSQLEXTRAFILE="./mariadb.cnf"
 DUMPOPTIONS="--add-drop-database --events --routines --triggers"
 
 #==============================================================================
