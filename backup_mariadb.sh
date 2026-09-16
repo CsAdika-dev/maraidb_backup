@@ -1,0 +1,96 @@
+#!/bin/bash
+
+#==============================================================================
+#TITLE:            backup_mariadb.sh
+#DESCRIPTION:      script for automating the periodic mariadb backups on computer
+#AUTHOR:           Adam Krikko
+#DATE:             2023-08-30
+#VERSION:          1.0
+#USAGE:            ./backup_mariadb.sh
+#CRON:
+  # example cron for daily db backup @ 9:15 am
+  # min  hr mday month wday command
+  # 15   9  *    *     *    /...path.../backup_mariadb.sh
+  # example cron for every 15 minutes
+  # min  hr mday month wday command
+  # */15 *  *    *     *    /...path.../backup_mariadb.sh
+
+#RESTORE FROM BACKUP
+  #$ gunzip < [backupfile.sql.gz] | mysql -u [uname] -p[pass] [dbname]
+
+#==============================================================================
+# CUSTOM SETTINGS
+#==============================================================================
+
+# directory to put the backup files
+BACKUP_DIR=/srv/backup/mariadb
+
+# Don't backup databases with these names 
+# Example: starts with mysql (^mysql) or ends with _schema (_schema$)
+# eg: "(^mysql|test|tmp|temp|_schema$)"
+IGNORE_DB="(_schema$)"
+
+# Number of piece to keep backups
+KEEP_BACKUPS_FOR=7 #day
+
+# Options for mysql and mysqldump
+MYSQLEXTRAFILE="/opt/scripts/mariadb.cnf"
+DUMPOPTIONS="--add-drop-database --events --routines --triggers"
+
+#==============================================================================
+# METHODS
+#==============================================================================
+
+# YYYY-MM-DD
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+
+function delete_old_backups() {
+    echo "Deleting $BACKUP_DIR/*.sql.gz old backup files..."
+    find $BACKUP_DIR -type f -name "*.sql.gz" -mtime +$KEEP_BACKUPS_FOR -exec rm -r {} \;
+}
+
+function database_list() {
+    local show_databases_sql="SHOW DATABASES WHERE \`Database\` NOT REGEXP '$IGNORE_DB'"
+    echo $(mysql --defaults-extra-file=$MYSQLEXTRAFILE -e "$show_databases_sql"|awk -F " " '{if (NR!=1) print $1}')
+}
+
+function echo_status() {
+    printf '\r';
+    printf ' %0.s' {0..100}
+    printf '\r';
+    printf "$1"'\r'
+}
+
+function backup_database() {
+    mkdir -p $BACKUP_DIR/$database
+    backup_file="$BACKUP_DIR/$database/$TIMESTAMP.sql.gz" 
+    output+="$database => $backup_file\n"
+    echo_status "...backing up $count of $total databases: $database"
+    $(mysqldump --defaults-extra-file=$MYSQLEXTRAFILE $DUMPOPTIONS $database | gzip -9 > $backup_file)
+}
+
+function backup_databases() {
+    local databases=$(database_list)
+    local total=$(echo $databases | wc -w | xargs)
+    local output=""
+    local count=1
+    for database in $databases; do
+        backup_database
+        local count=$((count+1))
+    done
+    echo -ne $output | column -t
+}
+
+function hr() {
+    printf '=%.0s' {1..100}
+    printf "\n"
+}
+
+#==============================================================================
+# RUN SCRIPT
+#==============================================================================
+delete_old_backups
+hr
+backup_databases
+hr
+printf "All backed up!\n\n"
