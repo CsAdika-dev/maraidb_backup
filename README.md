@@ -1,164 +1,168 @@
-# MariaDB mentési script
+# MariaDB Backup Script
 
-Ez a Bash script automatizált, tömörített mentést készít a MariaDB adatbázisokról. Az adatbázisokat külön könyvtárba menti, a mentéseket `gzip` segítségével tömöríti, és törli a megadott időnél régebbi fájlokat.
+This Bash script automates periodic backups of MariaDB databases. Each database is exported to a compressed SQL dump, stored in its own directory, and old backup files are removed automatically.
 
-## Funkciók
+## Features
 
-- A MariaDB-ben található adatbázisok automatikus felismerése.
-- Az `_schema` végződésű adatbázisok kihagyása.
-- Minden adatbázis külön könyvtárba mentése.
-- SQL dump készítése az alábbi elemekkel:
-  - táblák és adatok;
-  - események (`events`);
-  - tárolt eljárások és függvények (`routines`);
-  - triggerek (`triggers`);
-  - adatbázis törlése és újralétrehozása importáláskor (`--add-drop-database`).
-- A dumpok `gzip -9` tömörítéssel való mentése.
-- A 7 napnál régebbi mentések automatikus törlése.
-- Hibakezelés Bash strict mode használatával (`set -euo pipefail`).
+- Automatically discovers MariaDB databases.
+- Excludes databases matching the configured ignore pattern.
+- Stores each database backup in a separate directory.
+- Includes tables, data, events, routines, and triggers in the dump.
+- Compresses SQL dumps using `gzip -9`.
+- Removes `.sql.gz` backup files older than the configured retention period.
+- Uses Bash strict mode with `set -euo pipefail`.
 
-## Követelmények
+## Requirements
 
-A futtató gépen az alábbi programoknak elérhetőnek kell lenniük:
+The following commands must be available on the system running the script:
 
 - Bash
-- MariaDB kliens (`mariadb`)
+- MariaDB client (`mariadb`)
 - `mysqldump`
 - `gzip`
 - `find`
 - `awk`
 
-Ellenőrzés például:
+You can check the dependencies with:
 
 ```bash
 command -v mariadb mysqldump gzip find awk
 ```
 
-## Telepítés és konfiguráció
+## Configuration
 
-1. Klónozd a repository-t, vagy másold a scriptet a szerverre:
+The script reads MariaDB connection details from an option file. Use the following format:
 
-   ```bash
-   git clone https://github.com/CsAdika-dev/maraidb_backup.git
-   cd maraidb_backup
-   ```
+```ini
+[client]
+user="backup_user"
+password="your-password"
+host="127.0.0.1"
+port="3306"
+```
 
-2. Töltsd ki a MariaDB kapcsolati adatokat a konfigurációs fájlban:
+> **Security:** Protect this file because it may contain the database password.
 
-   ```ini
-   [client]
-   user="backup_user"
-   password="erős-jelszó"
-   host="127.0.0.1"
-   port="3306"
-   ```
+```bash
+chmod 600 mariadb.cnf
+```
 
-3. **Fontos:** a script jelenleg `./mariadb.conf` fájlt keres, miközben a repository-ban található fájl neve `mariadb.cnf`. A script futtatása előtt nevezd át a fájlt:
+### Configuration filename
 
-   ```bash
-   mv mariadb.cnf mariadb.conf
-   ```
+The script currently looks for:
 
-   vagy módosítsd a `backup_mariadb.sh` fájlban ezt a sort:
+```bash
+MARIADBEXTRAFILE="./mariadb.conf"
+```
 
-   ```bash
-   MARIADBEXTRAFILE="./mariadb.conf"
-   ```
+The repository configuration file is named `mariadb.cnf`. Either rename it:
 
-   erre:
+```bash
+mv mariadb.cnf mariadb.conf
+```
 
-   ```bash
-   MARIADBEXTRAFILE="./mariadb.cnf"
-   ```
+or update the `MARIADBEXTRAFILE` variable in `backup_mariadb.sh` to:
 
-4. Védd a konfigurációs fájlt, mert jelszót tartalmazhat:
+```bash
+MARIADBEXTRAFILE="./mariadb.cnf"
+```
 
-   ```bash
-   chmod 600 mariadb.conf
-   ```
+## Installation
 
-5. Tedd futtathatóvá a scriptet:
+Clone the repository and enter its directory:
 
-   ```bash
-   chmod +x backup_mariadb.sh
-   ```
+```bash
+git clone https://github.com/CsAdika-dev/maraidb_backup.git
+cd maraidb_backup
+```
 
-## Használat
+Make the script executable:
 
-A scriptet abból a könyvtárból futtasd, ahol a konfigurációs fájl található:
+```bash
+chmod +x backup_mariadb.sh
+```
+
+Configure the MariaDB option file before running the script.
+
+## Usage
+
+Run the script from the directory containing the script and the MariaDB option file:
 
 ```bash
 ./backup_mariadb.sh
 ```
 
-A mentések alapértelmezett könyvtárszerkezete:
+The default backup directory is `./backup`. Backups are organized as follows:
 
 ```text
 backup/
-├── adatbazis_1/
+├── database_1/
 │   └── 2026-01-01_12-30-00.sql.gz
-└── adatbazis_2/
+└── database_2/
     └── 2026-01-01_12-30-00.sql.gz
 ```
 
-A fájlnév formátuma:
+Backup filenames use the following format:
 
 ```text
 YYYY-MM-DD_HH-MM-SS.sql.gz
 ```
 
-## Beállítások módosítása
+## Script Settings
 
-A `backup_mariadb.sh` elején található változókkal módosítható a működés:
+The following variables can be changed near the beginning of `backup_mariadb.sh`:
 
-| Változó | Alapérték | Leírás |
-|---|---:|---|
-| `BACKUP_DIR` | `./backup` | A mentések célkönyvtára. |
-| `IGNORE_DB` | `(_schema$)` | A kihagyandó adatbázisok neveit meghatározó reguláris kifejezés. |
-| `KEEP_BACKUPS_FOR` | `7` | Ennyi napnál régebbi `.sql.gz` fájlokat töröl a script. |
-| `MARIADBEXTRAFILE` | `./mariadb.conf` | A MariaDB kapcsolati konfigurációjának elérési útja. |
-| `DUMPOPTIONS` | `--add-drop-database --events --routines --triggers` | A `mysqldump` kapcsolói. |
+| Variable | Default value | Description |
+|---|---|---|
+| `BACKUP_DIR` | `./backup` | Directory where backups are stored. |
+| `IGNORE_DB` | `(_schema$)` | Regular expression for databases to exclude. |
+| `KEEP_BACKUPS_FOR` | `7` | Number of days to keep backup files. |
+| `MARIADBEXTRAFILE` | `./mariadb.conf` | Path to the MariaDB option file. |
+| `DUMPOPTIONS` | `--add-drop-database --events --routines --triggers` | Options passed to `mysqldump`. |
 
-Például a mentések 30 napig történő megőrzéséhez:
+For example, to keep backups for 30 days:
 
 ```bash
 KEEP_BACKUPS_FOR=30
 ```
 
-## Automatikus futtatás cron segítségével
+## Automated Backups with Cron
 
-Napi futtatáshoz nyisd meg a cron táblát:
+Open the current user's crontab:
 
 ```bash
 crontab -e
 ```
 
-Majd adj hozzá egy bejegyzést, például hajnali 02:00 órára:
+The following example runs the backup every day at 02:00:
 
 ```cron
 0 2 * * * cd /opt/maraidb_backup && /opt/maraidb_backup/backup_mariadb.sh >> /var/log/mariadb-backup.log 2>&1
 ```
 
-A cron használatakor mindig abszolút elérési utakat használj, mivel a cron munkakönyvtára eltérhet az interaktív shell munkakönyvtárától.
+Use absolute paths in cron jobs because cron may run commands from a different working directory.
 
-## Visszaállítás
+## Restoring a Backup
 
-Egy tömörített mentés visszaállítása például így történhet:
+To restore a compressed backup, use:
 
 ```bash
-gunzip -c backup/adatbazis_1/2026-01-01_12-30-00.sql.gz | mariadb --defaults-extra-file=./mariadb.conf
+gunzip -c backup/database_1/2026-01-01_12-30-00.sql.gz | mariadb --defaults-extra-file=./mariadb.cnf
 ```
 
-A visszaállítás előtt ellenőrizd a mentés tartalmát és győződj meg arról, hogy a célkörnyezet megfelelő. A `--add-drop-database` kapcsoló miatt a dump importáláskor törölheti, majd újra létrehozhatja az adatbázist.
+Replace the path and filename with the backup you want to restore.
 
-## Biztonsági javaslatok
+> **Warning:** The dump uses the `--add-drop-database` option. During restoration, the target database may be dropped and recreated. Always verify the backup and target environment before importing it.
 
-- A konfigurációs fájlt ne tedd nyilvános repository-ba valódi jelszóval.
-- Használj kizárólag mentéshez szükséges jogosultságokkal rendelkező MariaDB-felhasználót.
-- A mentési könyvtár jogosultságait korlátozd.
-- A mentéseket lehetőleg külön lemezen vagy másik gépen is tárold.
-- Rendszeresen teszteld a visszaállítást; a sikeresen elkészült dump önmagában nem garantálja a visszaállíthatóságot.
+## Security Recommendations
 
-## Licenc
+- Never commit a real password to a public repository.
+- Use a MariaDB user with only the permissions required for backups.
+- Restrict permissions on the option file and backup directory.
+- Store backups on a separate disk or remote system when possible.
+- Regularly test restoration procedures.
+- Monitor the backup output and verify that expected backup files are created.
 
-A repository jelenleg nem tartalmaz külön licencfájlt.
+## License
+
+This repository does not currently include a license file.
