@@ -5,3 +5,5 @@ user=""
 password=""
 # fqdn or ip address
 host=""
+# port
+port=""
