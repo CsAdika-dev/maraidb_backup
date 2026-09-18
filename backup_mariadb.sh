@@ -3,94 +3,86 @@
 #==============================================================================
 #TITLE:            backup_mariadb.sh
 #DESCRIPTION:      script for automating the periodic mariadb backups on computer
-#AUTHOR:           Adam Krikko
-#DATE:             2023-08-30
 #VERSION:          1.0
 #USAGE:            ./backup_mariadb.sh
-#CRON:
-  # example cron for daily db backup @ 9:15 am
-  # min  hr mday month wday command
-  # 15   9  *    *     *    /...path.../backup_mariadb.sh
-  # example cron for every 15 minutes
-  # min  hr mday month wday command
-  # */15 *  *    *     *    /...path.../backup_mariadb.sh
-
-#RESTORE FROM BACKUP
-  #$ gunzip < [backupfile.sql.gz] | mysql -u [uname] -p[pass] [dbname]
-
 #==============================================================================
+
+# required: mariadb, mariadbdump, gzip, find
+
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
 # CUSTOM SETTINGS
-#==============================================================================
-
-# directory to put the backup files
-BACKUP_DIR=..... 
-
-# Don't backup databases with these names 
-# Example: starts with mysql (^mysql) or ends with _schema (_schema$)
-# eg: "(^mysql|test|tmp|temp|_schema$)"
+BACKUP_DIR=./backup
 IGNORE_DB="(_schema$)"
-
-# Number of piece to keep backups
-KEEP_BACKUPS_FOR=7 #day
-
-# Options for mysql and mysqldump
-MYSQLEXTRAFILE="./mariadb.cnf"
+KEEP_BACKUPS_FOR=7
+MARIADBEXTRAFILE="./mariadb.conf"
 DUMPOPTIONS="--add-drop-database --events --routines --triggers"
-
-#==============================================================================
-# METHODS
-#==============================================================================
-
-# YYYY-MM-DD
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 
-function delete_old_backups() {
-    echo "Deleting $BACKUP_DIR/*.sql.gz old backup files..."
-    find $BACKUP_DIR -type f -name "*.sql.gz" -mtime +$KEEP_BACKUPS_FOR -exec rm -r {} \;
+# Ensure backup directory exists
+mkdir -p "$BACKUP_DIR"
+
+# METHODS
+delete_old_backups() {
+    echo "Deleting old backup files older than $KEEP_BACKUPS_FOR days..."
+    find "$BACKUP_DIR" -type f -name "*.sql.gz" -mtime +$KEEP_BACKUPS_FOR -delete
 }
 
-function database_list() {
+database_list() {
     local show_databases_sql="SHOW DATABASES WHERE \`Database\` NOT REGEXP '$IGNORE_DB'"
-    echo $(mysql --defaults-extra-file=$MYSQLEXTRAFILE -e "$show_databases_sql"|awk -F " " '{if (NR!=1) print $1}')
+    mariadb --defaults-extra-file="$MARIADBEXTRAFILE" -e "$show_databases_sql" | awk 'NR!=1 {print $1}'
 }
 
-function echo_status() {
-    printf '\r';
-    printf ' %0.s' {0..100}
-    printf '\r';
-    printf "$1"'\r'
+backup_database() {
+    local database=$1
+    local count=$2
+    local total=$3
+    local db_backup_dir="$BACKUP_DIR/$database"
+    local backup_file="$db_backup_dir/$TIMESTAMP.sql.gz"
+    
+    mkdir -p "$db_backup_dir"
+    
+    echo "...backing up $count of $total databases: $database"
+    
+    if mysqldump --defaults-extra-file="$MARIADBEXTRAFILE" $DUMPOPTIONS "$database" | gzip -9 > "$backup_file"; then
+        echo "  ✓ $database => $backup_file"
+        return 0
+    else
+        echo "  ✗ ERROR backing up $database" >&2
+        return 1
+    fi
 }
 
-function backup_database() {
-    mkdir -p $BACKUP_DIR/$database
-    backup_file="$BACKUP_DIR/$database/$TIMESTAMP.sql.gz" 
-    output+="$database => $backup_file\n"
-    echo_status "...backing up $count of $total databases: $database"
-    $(mysqldump --defaults-extra-file=$MYSQLEXTRAFILE $DUMPOPTIONS $database | gzip -9 > $backup_file)
-}
-
-function backup_databases() {
+backup_databases() {
+    # Retrieve list of databases to backup
     local databases=$(database_list)
-    local total=$(echo $databases | wc -w | xargs)
-    local output=""
+    # If no databases are returned, inform the user and exit gracefully
+    if [[ -z "$databases" ]]; then
+        echo "No databases match the backup criteria. Nothing to backup."
+        return 0
+    fi
+
+    local total=$(echo $databases | wc -w)
     local count=1
+    
     for database in $databases; do
-        backup_database
-        local count=$((count+1))
+        if ! backup_database "$database" "$count" "$total"; then
+            echo "Warning: Failed to backup $database" >&2
+        fi
+        ((count++))
     done
-    echo -ne $output | column -t
 }
 
-function hr() {
+hr() {
     printf '=%.0s' {1..100}
     printf "\n"
 }
 
-#==============================================================================
 # RUN SCRIPT
-#==============================================================================
+echo "MariaDB Backup started at $TIMESTAMP"
+hr
 delete_old_backups
 hr
 backup_databases
 hr
-printf "All backed up!\n\n"
+echo "All backed up!"
